@@ -115,8 +115,8 @@ function createWindow(title, width, height, x, y, fullscreen, index, preload){
 app.whenReady().then(()=>{
     mainWindow = createWindow("Collage Cuisine", 1000, 600, -2000, 50, true, "../frontend/collage/index.html", "../frontend/preload.js");
     diaWindow = createWindow("Diashow", 300, 500, 100, 50, true, "../frontend/diashow/dia.html", "../frontend/preload.js");
-    autoUpdater.checkForUpdates();
-    mainWindow.webContents.send("updateStatus", "checking for update")
+
+    startUpdateCheck()
 
     /*process.platform is the current os, darwin -> MacOs, win32 -> all windows OS also 64bit */
     if(process.platform == "darwin"){
@@ -390,3 +390,41 @@ async function getRandomImageURL() {
 ipcMain.handle('get-app-version', () => {
     return app.getVersion();  // this gets version from package.json
 });
+
+//update check function
+async function startUpdateCheck() {
+  const online = await waitForInternet()
+
+  if (!online) {
+    console.log('Kein Internet -> Update Check übersprungen')
+    return
+  }
+
+  try {
+    await autoUpdater.checkForUpdates()
+    mainWindow.webContents.send("updateStatus", "checking for update")
+  } catch (err) {
+    console.error('Update Fehler:', err)
+  }
+}
+
+//Internet check
+async function waitForInternet(maxAttempts = 10) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await dns.lookup('api.github.com')
+
+      console.log('Internet verfügbar')
+      return true
+    } catch (err) {
+      console.log(`DNS noch nicht verfügbar (${attempt}/${maxAttempts})`)
+
+      // Exponential Backoff
+      const delay = Math.min(attempt * 2000, 15000)
+
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  return false
+}
