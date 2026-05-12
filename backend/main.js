@@ -261,41 +261,60 @@ ipcMain.handle("saveImage",()=>{
     saveImage()
 })
 
+let saving = false;
+
 async function saveImage(){
 
-    let date = new Date()
-
-    filename =
-    "Collage-" +
-    (date.getFullYear() + 1) +
-    "-" +
-    date.getMonth() +
-    "-" +
-    date.getDate() +
-    "-"+
-    date.getHours()+
-    "-" +
-    date.getMinutes() +
-    "-" +
-    date.getSeconds();
-
-    newFilename = "Collage-" + nameCounter;
-    if(nameCounter < 50){
-        nameCounter++
-    } else {    
-        nameCounter = 0
+    if(saving) {
+        console.log("Already saving");
+        return;
     }
 
-    /*Takes a screenshot of the main window and saves it to a folder called "Collagen" on the desktop*/
-    mainWindow.webContents.capturePage().then((img)=>{
-        fs.writeFile(savePath+filename+".png", img.toPNG(), "base64", function(err){
-            if(err){
-                dialog.showMessageBox(mainWindow, savePathError)
-                return 
-            } 
-            uploadCollage()
-        })
-    })
+    saving = true;
+
+    try {
+
+        const date = new Date();
+
+        const filename =
+            "Collage-" +
+            date.getFullYear() +
+            "-" +
+            date.getMonth() +
+            "-" +
+            date.getDate() +
+            "-" +
+            date.getHours() +
+            "-" +
+            date.getMinutes() +
+            "-" +
+            date.getSeconds();
+
+        const newFilename = "Collage-" + nameCounter;
+
+        if(nameCounter < 50){
+            nameCounter++;
+        } else {
+            nameCounter = 0;
+        }
+
+        const img = await mainWindow.webContents.capturePage();
+
+        await fs.promises.writeFile(
+            savePath + filename + ".png",
+            img.toPNG()
+        );
+
+        await uploadCollage(filename, newFilename);
+
+    } catch(err) {
+
+        console.error(err);
+
+    } finally {
+
+        saving = false;
+    }
 }
 
 ipcMain.handle('fileNames', () => getFileNames()); //if upload succcessful update list for diashow
@@ -309,57 +328,75 @@ function getFileNames() {
 //-----Supabase-----//
 
 //uploads file to Supabase
-async function uploadCollage() {
+async function uploadCollage(filename, newFilename) {
 
     try {
-        const storageFilePath = 'collages/' + newFilename + ".png";
-        const collageFileBuffer = fs.readFileSync(savePath + filename + ".png");
 
-        await supabase.storage.from('Collages').remove([storageFilePath]).catch((err) => {
-            console.log(err)
-        });
+        const storageFilePath =
+            'collages/' + newFilename + ".png";
 
-        const { data, error } = await supabase
-        .storage
-        .from('Collages')
-        .upload(storageFilePath, collageFileBuffer, {
-            cacheControl: '3600',
-            upsert: true
-        })
+        const collageFileBuffer =
+            fs.readFileSync(savePath + filename + ".png");
+
+        await supabase
+            .storage
+            .from('Collages')
+            .remove([storageFilePath])
+            .catch(console.log);
+
+        const { error } = await supabase
+            .storage
+            .from('Collages')
+            .upload(storageFilePath, collageFileBuffer, {
+                cacheControl: '3600',
+                upsert: true
+            });
+
         if (error) {
-            console.error("Error uploading file:", error);
-            dialog.showMessageBox(mainWindow, uploadError)
-            setTimeout(()=>{
-                updateAbortController.abort()
-            }, 10000)
+            console.error(error);
+            dialog.showMessageBox(mainWindow, uploadError);
+            return;
         }
-        mainWindow.webContents.send("qrLink", await getImageURL())
-    } catch (error) {
-        console.error("An unexpected error occurred while uploading screenshot:", error);
-        dialog.showMessageBox(mainWindow, uploadError)
-        setTimeout(()=>{
-            updateAbortController.abort()
-        }, 10000)
+
+        const imageURL =
+            await getImageURL(newFilename);
+
+        mainWindow.webContents.send(
+            "qrLink",
+            imageURL
+        );
+
+    } catch(error) {
+
+        console.error(error);
     }
 }
 
 // returns URL from img on Supabase
-async function getImageURL() {
+async function getImageURL(newFilename) {
+
     try {
-        const storageFilePath = 'collages/' + newFilename + ".png";
-        const { data , error } = supabase
-        .storage
-        .from('Collages')
-        .getPublicUrl(storageFilePath)
-        if (error) {
-            console.error("Error fetching QRImageURL:", error);
-        } else {
-            const imageURL = data.publicUrl;
-            console.log("QRImageURL:", imageURL);
-            return imageURL;
+
+        const storageFilePath =
+            'collages/' + newFilename + ".png";
+
+        const { data, error } =
+            supabase
+            .storage
+            .from('Collages')
+            .getPublicUrl(storageFilePath);
+
+        if(error) {
+            console.error(error);
+            return null;
         }
-    } catch (error) {
-        console.error("An unexpected error occurred while fetching ImageURL:", err);
+
+        return data.publicUrl;
+
+    } catch(error) {
+
+        console.error(error);
+        return null;
     }
 }
 
